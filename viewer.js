@@ -1,0 +1,114 @@
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const map = L.map('map').setView([0, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
+
+const markers = {};      // deviceId -> L.marker
+const listeners = {};    // deviceId -> firebase ref
+const listEl = document.getElementById('deviceList');
+const addForm = document.getElementById('addDeviceForm');
+const idInput = document.getElementById('newDeviceId');
+
+function getSavedDevices() {
+  return JSON.parse(localStorage.getItem('watched_devices') || '[]');
+}
+function saveDevices(list) {
+  localStorage.setItem('watched_devices', JSON.stringify(list));
+}
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function renderDeviceRow(deviceId, data) {
+  let row = document.getElementById('row-' + deviceId);
+  if (!row) {
+    row = document.createElement('div');
+    row.id = 'row-' + deviceId;
+    row.className = 'device-row';
+    listEl.appendChild(row);
+  }
+  if (!data) {
+    row.innerHTML = `<strong>${deviceId}</strong><br><span class="hint">No location yet…</span>
+      <button class="remove" data-id="${deviceId}">✕</button>`;
+    return;
+  }
+  row.innerHTML = `
+    <strong>${deviceId}</strong>
+    <button class="remove" data-id="${deviceId}">✕</button><br>
+    <span class="hint">Last seen ${timeAgo(data.timestamp)} · ±${Math.round(data.accuracy)}m
+    ${data.battery !== null && data.battery !== undefined ? ' · 🔋' + data.battery + '%' : ''}</span>
+    <br><button class="locate" data-id="${deviceId}">Center on map</button>
+  `;
+}
+
+function watchDevice(deviceId) {
+  if (listeners[deviceId]) return; // already watching
+  renderDeviceRow(deviceId, null);
+
+  const ref = db.ref('devices/' + deviceId);
+  listeners[deviceId] = ref;
+
+  ref.on('value', (snap) => {
+    const data = snap.val();
+    if (!data) return;
+    renderDeviceRow(deviceId, data);
+
+    const latlng = [data.lat, data.lng];
+    if (markers[deviceId]) {
+      markers[deviceId].setLatLng(latlng);
+    } else {
+      markers[deviceId] = L.marker(latlng).addTo(map).bindPopup(deviceId);
+      map.setView(latlng, 15);
+    }
+    markers[deviceId].setPopupContent(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
+  });
+}
+
+function removeDevice(deviceId) {
+  if (listeners[deviceId]) {
+    listeners[deviceId].off();
+    delete listeners[deviceId];
+  }
+  if (markers[deviceId]) {
+    map.removeLayer(markers[deviceId]);
+    delete markers[deviceId];
+  }
+  const row = document.getElementById('row-' + deviceId);
+  if (row) row.remove();
+  saveDevices(getSavedDevices().filter(d => d !== deviceId));
+}
+
+addForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = idInput.value.trim();
+  if (!id) return;
+  const devices = getSavedDevices();
+  if (!devices.includes(id)) {
+    devices.push(id);
+    saveDevices(devices);
+  }
+  watchDevice(id);
+  idInput.value = '';
+});
+
+listEl.addEventListener('click', (e) => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  if (e.target.classList.contains('remove')) removeDevice(id);
+  if (e.target.classList.contains('locate') && markers[id]) {
+    map.setView(markers[id].getLatLng(), 16);
+    markers[id].openPopup();
+  }
+});
+
+// Load previously watched devices on page load
+getSavedDevices().forEach(watchDevice);

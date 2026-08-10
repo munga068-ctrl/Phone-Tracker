@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Find My Phone</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="sidebar">
+    <h1>📱 Find My Phone</h1>
+    <form id="addDeviceForm">
+      <input type="text" id="newDeviceId" placeholder="Device ID / PIN" autocomplete="off">
+      <button type="submit">Add</button>
+    </form>
+    <div id="deviceList"></div>
+    <p class="hint">To make a phone findable, open <code>track.html</code> on it and start sharing with the same Device ID.</p>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/viewer.js"></script>
+</body>
+</html>

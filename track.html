@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Share My Location</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="card">
+    <h1>📍 Share This Phone's Location</h1>
+    <p class="hint">Open this page on the phone you want to be able to find later. Keep this tab open (or add it to your home screen) while you want it tracked.</p>
+
+    <label for="deviceId">Device ID / PIN</label>
+    <input type="text" id="deviceId" placeholder="e.g. moms-phone-4471" autocomplete="off">
+
+    <div class="buttons">
+      <button id="startBtn">Start Sharing</button>
+      <button id="stopBtn" disabled>Stop</button>
+    </div>
+
+    <p id="status" class="status">Not sharing yet.</p>
+
+    <p class="hint">Remember this Device ID — you'll need it on the viewer page to find this phone.</p>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/tracker.js"></script>
+</body>
+</html>

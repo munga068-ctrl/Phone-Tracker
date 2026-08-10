@@ -1,0 +1,59 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  color: #222;
+}
+
+/* --- track.html card layout --- */
+.card {
+  max-width: 420px;
+  margin: 60px auto;
+  padding: 24px;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+}
+.card h1 { font-size: 1.3em; margin-top: 0; }
+.hint { color: #666; font-size: 0.85em; }
+label { display: block; margin-top: 14px; font-weight: 600; font-size: 0.9em; }
+input[type="text"] {
+  width: 100%; padding: 10px; margin-top: 6px;
+  border: 1px solid #ccc; border-radius: 8px; font-size: 1em;
+}
+.buttons { display: flex; gap: 10px; margin-top: 18px; }
+button {
+  flex: 1; padding: 12px; border: none; border-radius: 8px;
+  background: #2563eb; color: white; font-size: 1em; cursor: pointer;
+}
+button:disabled { background: #aaa; cursor: default; }
+#stopBtn { background: #dc2626; }
+.status { margin-top: 16px; font-weight: 600; font-size: 0.9em; }
+
+/* --- index.html dashboard layout --- */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; width: 300px;
+  padding: 16px; overflow-y: auto; background: #fafafa; border-right: 1px solid #ddd;
+  z-index: 1000;
+}
+.sidebar h1 { font-size: 1.2em; }
+#addDeviceForm { display: flex; gap: 6px; margin-bottom: 12px; }
+#addDeviceForm input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 6px; }
+#addDeviceForm button { flex: none; padding: 8px 12px; }
+.device-row {
+  background: white; border: 1px solid #e5e5e5; border-radius: 8px;
+  padding: 10px; margin-bottom: 8px; position: relative;
+}
+.device-row .remove {
+  position: absolute; top: 8px; right: 8px; width: 24px; height: 24px;
+  padding: 0; background: #eee; color: #333; border-radius: 6px; font-size: 0.8em;
+}
+.device-row .locate {
+  margin-top: 6px; padding: 6px 10px; font-size: 0.85em; width: auto;
+}
+#map { position: fixed; top: 0; left: 300px; right: 0; bottom: 0; }
+
+@media (max-width: 700px) {
+  .sidebar { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid #ddd; }
+  #map { position: static; height: 60vh; width: 100%; }
+}
