@@ -8,7 +8,6 @@ const stopBtn = document.getElementById('stopBtn');
 
 let watchId = null;
 
-// Reuse a saved device ID/PIN on this phone, or let the user set one
 let deviceId = localStorage.getItem('tracker_device_id') || '';
 idEl.value = deviceId;
 
@@ -26,15 +25,18 @@ async function sendLocation(pos) {
     }
   } catch (e) {}
 
-  db.ref('devices/' + deviceId).set({
-    lat: latitude,
-    lng: longitude,
-    accuracy: accuracy,
-    battery: battery,
-    timestamp: Date.now()
-  });
-
-  setStatus(`Sharing location — last update ${new Date().toLocaleTimeString()} (±${Math.round(accuracy)}m)`);
+  try {
+    await db.ref('devices/' + deviceId).set({
+      lat: latitude,
+      lng: longitude,
+      accuracy: accuracy,
+      battery: battery,
+      timestamp: Date.now()
+    });
+    setStatus(`Sharing location — last update ${new Date().toLocaleTimeString()} (±${Math.round(accuracy)}m)`);
+  } catch (err) {
+    setStatus('Firebase write failed: ' + err.message);
+  }
 }
 
 function onError(err) {
