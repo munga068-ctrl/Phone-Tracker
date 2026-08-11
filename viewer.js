@@ -70,6 +70,10 @@ function watchDevice(deviceId) {
       map.setView(latlng, 15);
     }
     markers[deviceId].setPopupContent(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
+  }, (err) => {
+    const row = document.getElementById('row-' + deviceId);
+    if (row) row.innerHTML = `<strong>${deviceId}</strong><br><span class="hint">Read failed: ${err.message}</span>
+      <button class="remove" data-id="${deviceId}">✕</button>`;
   });
 }
 
