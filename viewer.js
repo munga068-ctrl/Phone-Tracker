@@ -13,6 +13,17 @@ const listEl = document.getElementById('deviceList');
 const addForm = document.getElementById('addDeviceForm');
 const idInput = document.getElementById('newDeviceId');
 
+// Keep in sync with tracker.js — same safe character set for Firebase keys.
+const SAFE_ID_PATTERN = /[^a-zA-Z0-9_-]/g;
+function sanitizeDeviceId(raw) {
+  return raw.trim().replace(SAFE_ID_PATTERN, '');
+}
+
+// A device that hasn't reported in this long is probably not actively
+// sharing anymore (tab closed, screen locked, etc.) — flag it visually
+// rather than implying the pin/marker is current.
+const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+
 function getSavedDevices() {
   return JSON.parse(localStorage.getItem('watched_devices') || '[]');
 }
@@ -37,14 +48,17 @@ function renderDeviceRow(deviceId, data) {
     listEl.appendChild(row);
   }
   if (!data) {
+    row.classList.remove('stale');
     row.innerHTML = `<strong>${deviceId}</strong><br><span class="hint">No location yet…</span>
       <button class="remove" data-id="${deviceId}">✕</button>`;
     return;
   }
+  const isStale = (Date.now() - data.timestamp) > STALE_THRESHOLD_MS;
+  row.classList.toggle('stale', isStale);
   row.innerHTML = `
     <strong>${deviceId}</strong>
     <button class="remove" data-id="${deviceId}">✕</button><br>
-    <span class="hint">Last seen ${timeAgo(data.timestamp)} · ±${Math.round(data.accuracy)}m
+    <span class="hint">${isStale ? '⚠️ Not currently sharing — ' : ''}Last seen ${timeAgo(data.timestamp)} · ±${Math.round(data.accuracy)}m
     ${data.battery !== null && data.battery !== undefined ? ' · 🔋' + data.battery + '%' : ''}</span>
     <br><button class="locate" data-id="${deviceId}">Center on map</button>
   `;
@@ -93,7 +107,7 @@ function removeDevice(deviceId) {
 
 addForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  const id = idInput.value.trim();
+  const id = sanitizeDeviceId(idInput.value);
   if (!id) return;
   const devices = getSavedDevices();
   if (!devices.includes(id)) {
@@ -116,3 +130,13 @@ listEl.addEventListener('click', (e) => {
 
 // Load previously watched devices on page load
 getSavedDevices().forEach(watchDevice);
+
+// "time ago" text and the stale flag both depend on the clock moving
+// forward, not just on new Firebase writes — refresh periodically so a
+// device that stopped reporting visibly flips to stale without needing a
+// fresh value event.
+setInterval(() => {
+  Object.keys(listeners).forEach(deviceId => {
+    listeners[deviceId].once('value', (snap) => renderDeviceRow(deviceId, snap.val()));
+  });
+}, 15000);
