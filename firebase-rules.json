@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "devices": {
+      "$deviceId": {
+        ".read": "$deviceId.length >= 6",
+        ".write": "$deviceId.length >= 6",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'accuracy', 'timestamp']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('accuracy').isNumber() && newData.child('timestamp').isNumber()"
+      }
+    }
+  }
+}
