@@ -51,6 +51,10 @@ button:disabled { background: #aaa; cursor: default; }
 .device-row .locate {
   margin-top: 6px; padding: 6px 10px; font-size: 0.85em; width: auto;
 }
+.device-row.stale {
+  background: #fff8f0; border-color: #f3d9b1;
+}
+.device-row.stale .hint { color: #b45309; }
 #map { position: fixed; top: 0; left: 300px; right: 0; bottom: 0; }
 
 @media (max-width: 700px) {
