@@ -48,14 +48,22 @@ button:disabled { background: #aaa; cursor: default; }
   position: absolute; top: 8px; right: 8px; width: 24px; height: 24px;
   padding: 0; background: #eee; color: #333; border-radius: 6px; font-size: 0.8em;
 }
-.device-row .locate {
-  margin-top: 6px; padding: 6px 10px; font-size: 0.85em; width: auto;
+.device-row .locate,
+.device-row .directions {
+  margin-top: 6px; margin-right: 4px; padding: 6px 10px; font-size: 0.85em; width: auto;
 }
+.device-row .directions { background: #16a34a; }
 .device-row.stale {
   background: #fff8f0; border-color: #f3d9b1;
 }
 .device-row.stale .hint { color: #b45309; }
 #map { position: fixed; top: 0; left: 300px; right: 0; bottom: 0; }
+
+.my-location-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #2f6fed; border: 3px solid white;
+  box-shadow: 0 0 0 2px #2f6fed, 0 1px 4px rgba(0,0,0,0.4);
+}
 
 @media (max-width: 700px) {
   .sidebar { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid #ddd; }
