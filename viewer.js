@@ -22,7 +22,7 @@ const satelliteLabels = L.tileLayer(
 );
 const satelliteLayer = L.layerGroup([satelliteImagery, satelliteLabels]);
 
-streetLayer.addTo(map); // default view
+satelliteLayer.addTo(map); // default view
 L.control.layers({ 'Street': streetLayer, 'Satellite': satelliteLayer }, {}, { position: 'topright' }).addTo(map);
 
 const markers = {};      // deviceId -> L.marker
