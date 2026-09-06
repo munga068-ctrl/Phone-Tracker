@@ -1,42 +1,123 @@
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-const map = L.map('map').setView([0, 0], 2);
+// ---- Map styles: two raster-tile style definitions (Street / Satellite).
+// Each includes an empty "route" GeoJSON layer up front, because
+// map.setStyle() wipes any sources/layers added at runtime — keeping the
+// route layer defined in both styles from the start means the Directions
+// feature survives switching between Street and Satellite. ----
+function emptyRouteFeatureCollection() {
+  return { type: 'FeatureCollection', features: [] };
+}
 
-const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 19
+function buildStreetStyle() {
+  return {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: [
+          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'
+        ],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap contributors',
+        maxzoom: 19
+      },
+      route: { type: 'geojson', data: emptyRouteFeatureCollection() }
+    },
+    layers: [
+      { id: 'osm-layer', type: 'raster', source: 'osm' },
+      { id: 'route-line', type: 'line', source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#2f6fed', 'line-width': 4, 'line-opacity': 0.85 } }
+    ]
+  };
+}
+
+function buildSatelliteStyle() {
+  return {
+    version: 8,
+    sources: {
+      esriImagery: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics',
+        maxzoom: 19
+      },
+      esriLabels: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        maxzoom: 19
+      },
+      route: { type: 'geojson', data: emptyRouteFeatureCollection() }
+    },
+    layers: [
+      { id: 'esri-imagery-layer', type: 'raster', source: 'esriImagery' },
+      { id: 'esri-labels-layer', type: 'raster', source: 'esriLabels' },
+      { id: 'route-line', type: 'line', source: 'route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#2f6fed', 'line-width': 4, 'line-opacity': 0.85 } }
+    ]
+  };
+}
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: buildSatelliteStyle(), // satellite is the default view
+  center: [0, 20],
+  zoom: 1.3
 });
 
-// Satellite imagery has no text on its own, so it's paired with a labels
-// overlay (place names, roads, borders) that Esri serves specifically to
-// sit on top of their imagery — this is the standard "satellite + labels"
-// combo, equivalent to what most map apps call "Hybrid" view.
-const satelliteImagery = L.tileLayer(
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  { attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19 }
-);
-const satelliteLabels = L.tileLayer(
-  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-  { maxZoom: 19, pane: 'shadowPane' } // renders labels above imagery
-);
-const satelliteLayer = L.layerGroup([satelliteImagery, satelliteLabels]);
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-satelliteLayer.addTo(map); // default view
-L.control.layers({ 'Street': streetLayer, 'Satellite': satelliteLayer }, {}, { position: 'topright' }).addTo(map);
+let currentStyleName = 'satellite';
+let lastRouteGeoJSON = null;
 
-const markers = {};      // deviceId -> L.marker
+// Runs on the initial load AND every time setStyle() swaps the style out —
+// both cases fire 'style.load', so this is the one place that needs to
+// re-apply the globe projection (a runtime map property, not part of the
+// style spec) and restore any in-progress route (which setStyle wipes).
+function onStyleLoad() {
+  map.setProjection({ type: 'globe' });
+  if (lastRouteGeoJSON && map.getSource('route')) {
+    map.getSource('route').setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
+  }
+}
+map.on('style.load', onStyleLoad);
+
+function switchStyle(name) {
+  if (name === currentStyleName) return;
+  currentStyleName = name;
+  map.setStyle(name === 'street' ? buildStreetStyle() : buildSatelliteStyle());
+}
+
+// MapLibre doesn't ship Leaflet's L.control.layers equivalent, so this is a
+// small custom control for the Street/Satellite toggle.
+const styleToggle = document.createElement('div');
+styleToggle.className = 'style-toggle maplibregl-ctrl';
+styleToggle.innerHTML = `
+  <button type="button" data-style="street">Street</button>
+  <button type="button" data-style="satellite" class="active">Satellite</button>
+`;
+document.getElementById('map').appendChild(styleToggle);
+styleToggle.addEventListener('click', (e) => {
+  const name = e.target.dataset.style;
+  if (!name) return;
+  switchStyle(name);
+  styleToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.style === name));
+});
+
+const markers = {};      // deviceId -> maplibregl.Marker
 const listeners = {};    // deviceId -> firebase ref
 const listEl = document.getElementById('deviceList');
 const addForm = document.getElementById('addDeviceForm');
 const idInput = document.getElementById('newDeviceId');
 
 let myLocationMarker = null;
-let routeLine = null;
-const myLocationIcon = L.divIcon({
-  className: 'my-location-dot',
-  iconSize: [16, 16]
-});
 
 // Keep in sync with tracker.js — same safe character set for Firebase keys.
 const SAFE_ID_PATTERN = /[^a-zA-Z0-9_-]/g;
@@ -91,13 +172,34 @@ function renderDeviceRow(deviceId, data) {
 }
 
 function clearRoute() {
-  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  lastRouteGeoJSON = null;
+  const src = map.getSource('route');
+  if (src) src.setData(emptyRouteFeatureCollection());
+}
+
+function setRoute(coordsLngLat) {
+  lastRouteGeoJSON = {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coordsLngLat },
+    properties: {}
+  };
+  const src = map.getSource('route');
+  if (src) src.setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
+}
+
+function boundsFromCoords(coordsLngLat) {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  coordsLngLat.forEach(([lng, lat]) => {
+    minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+  });
+  return [[minLng, minLat], [maxLng, maxLat]];
 }
 
 async function showDirectionsTo(deviceId) {
   const marker = markers[deviceId];
   if (!marker) return;
-  const dest = marker.getLatLng();
+  const dest = marker.getLngLat(); // {lng, lat}
 
   // Turn-by-turn navigation is best handled by the phone's own Maps app —
   // this works immediately without needing our own geolocation permission,
@@ -110,29 +212,34 @@ async function showDirectionsTo(deviceId) {
   // using our own location if the browser grants it.
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(async (pos) => {
-    const origin = [pos.coords.latitude, pos.coords.longitude];
+    const origin = [pos.coords.longitude, pos.coords.latitude]; // [lng, lat]
     if (myLocationMarker) {
-      myLocationMarker.setLatLng(origin);
+      myLocationMarker.setLngLat(origin);
     } else {
-      myLocationMarker = L.marker(origin, { icon: myLocationIcon }).addTo(map).bindPopup('Your location');
+      const el = document.createElement('div');
+      el.className = 'my-location-dot';
+      myLocationMarker = new maplibregl.Marker({ element: el })
+        .setLngLat(origin)
+        .setPopup(new maplibregl.Popup().setText('Your location'))
+        .addTo(map);
     }
-    clearRoute();
 
+    let coords;
     try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${dest.lng},${dest.lat}?overview=full&geometry=geojson`;
+      const url = `https://router.project-osrm.org/route/v1/driving/${origin[0]},${origin[1]};${dest.lng},${dest.lat}?overview=full&geometry=geojson`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('routing service unavailable');
       const data = await res.json();
       const route = data.routes && data.routes[0];
       if (!route) throw new Error('no route found');
-      const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
-      routeLine = L.polyline(coords, { color: '#2f6fed', weight: 4, opacity: 0.85 }).addTo(map);
+      coords = route.geometry.coordinates; // OSRM already returns [lng, lat] pairs
     } catch (e) {
       // Fall back to a straight "as the crow flies" line if the free
       // routing service is unreachable or can't find a driving route.
-      routeLine = L.polyline([origin, [dest.lat, dest.lng]], { color: '#2f6fed', weight: 3, dashArray: '6 6' }).addTo(map);
+      coords = [origin, [dest.lng, dest.lat]];
     }
-    map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+    setRoute(coords);
+    map.fitBounds(boundsFromCoords(coords), { padding: 60 });
   }, () => {
     // Geolocation denied/unavailable — the external Maps tab we already
     // opened still works fine, so there's nothing more to do here.
@@ -151,14 +258,15 @@ function watchDevice(deviceId) {
     if (!data) return;
     renderDeviceRow(deviceId, data);
 
-    const latlng = [data.lat, data.lng];
+    const lngLat = [data.lng, data.lat];
     if (markers[deviceId]) {
-      markers[deviceId].setLatLng(latlng);
+      markers[deviceId].setLngLat(lngLat);
     } else {
-      markers[deviceId] = L.marker(latlng).addTo(map).bindPopup(deviceId);
-      map.setView(latlng, 15);
+      const popup = new maplibregl.Popup().setHTML(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
+      markers[deviceId] = new maplibregl.Marker().setLngLat(lngLat).setPopup(popup).addTo(map);
+      map.flyTo({ center: lngLat, zoom: 15 });
     }
-    markers[deviceId].setPopupContent(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
+    markers[deviceId].getPopup().setHTML(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
   }, (err) => {
     const row = document.getElementById('row-' + deviceId);
     if (row) row.innerHTML = `<strong>${deviceId}</strong><br><span class="hint">Read failed: ${err.message}</span>
@@ -172,7 +280,7 @@ function removeDevice(deviceId) {
     delete listeners[deviceId];
   }
   if (markers[deviceId]) {
-    map.removeLayer(markers[deviceId]);
+    markers[deviceId].remove();
     delete markers[deviceId];
   }
   const row = document.getElementById('row-' + deviceId);
@@ -198,8 +306,9 @@ listEl.addEventListener('click', (e) => {
   if (!id) return;
   if (e.target.classList.contains('remove')) removeDevice(id);
   if (e.target.classList.contains('locate') && markers[id]) {
-    map.setView(markers[id].getLatLng(), 16);
-    markers[id].openPopup();
+    map.flyTo({ center: markers[id].getLngLat(), zoom: 16 });
+    const popup = markers[id].getPopup();
+    if (popup && !popup.isOpen()) markers[id].togglePopup();
   }
   if (e.target.classList.contains('directions')) showDirectionsTo(id);
 });
