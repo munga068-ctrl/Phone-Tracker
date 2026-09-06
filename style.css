@@ -65,6 +65,20 @@ button:disabled { background: #aaa; cursor: default; }
   box-shadow: 0 0 0 2px #2f6fed, 0 1px 4px rgba(0,0,0,0.4);
 }
 
+.style-toggle {
+  position: absolute; top: 10px; right: 50px; z-index: 5;
+  background: white; border-radius: 8px; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  display: flex;
+}
+.style-toggle button {
+  flex: none; width: auto; padding: 8px 14px; font-size: 0.85em;
+  background: white; color: #333; border-radius: 0;
+}
+.style-toggle button.active {
+  background: #2563eb; color: white;
+}
+
 @media (max-width: 700px) {
   .sidebar { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid #ddd; }
   #map { position: static; height: 60vh; width: 100%; }
