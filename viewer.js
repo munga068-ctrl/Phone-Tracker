@@ -1,13 +1,74 @@
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// ---- Map styles: two raster-tile style definitions (Street / Satellite).
-// Each includes an empty "route" GeoJSON layer up front, because
+const COUNTRIES_URL = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_110m_admin_0_countries.geojson';
+
+// ---- Map styles ----
+// Each style includes an empty "route" GeoJSON layer up front, because
 // map.setStyle() wipes any sources/layers added at runtime — keeping the
-// route layer defined in both styles from the start means the Directions
-// feature survives switching between Street and Satellite. ----
+// route layer defined in every style from the start means the Directions
+// feature survives switching styles.
 function emptyRouteFeatureCollection() {
   return { type: 'FeatureCollection', features: [] };
+}
+function routeLineLayer() {
+  return {
+    id: 'route-line', type: 'line', source: 'route',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#2f6fed', 'line-width': 4, 'line-opacity': 0.85 }
+  };
+}
+
+// A single polygon covering the whole sphere's surface, used as the ocean
+// fill underneath the country polygons. There's deliberately no separate
+// "background" style layer — that would also paint the empty space around
+// the globe solid, hiding the starfield behind it. Leaving that area
+// untouched lets the transparent map canvas show the page's own starfield
+// background through, while the globe itself still reads as solid (ocean +
+// countries) since this polygon covers every bit of its surface.
+function oceanFeature() {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Polygon', coordinates: [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]] }
+  };
+}
+
+// Natural Earth's MAPCOLOR9 property is pre-computed graph coloring — it
+// guarantees no two neighboring countries ever share the same color, which
+// is exactly what gives a political map that clean, distinct-region look.
+const COUNTRY_COLOR_PALETTE = {
+  1: '#e0575b', 2: '#3fa9f5', 3: '#3ecf8e', 4: '#f5a623', 5: '#a56ce2',
+  6: '#f2d94e', 7: '#4ecdc4', 8: '#ff8fa3', 9: '#7fd1e0'
+};
+
+function buildGlobeStyle(countriesGeoJSON) {
+  return {
+    version: 8,
+    sources: {
+      ocean: { type: 'geojson', data: oceanFeature() },
+      countries: { type: 'geojson', data: countriesGeoJSON || { type: 'FeatureCollection', features: [] } },
+      route: { type: 'geojson', data: emptyRouteFeatureCollection() }
+    },
+    layers: [
+      { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#050912' } },
+      {
+        id: 'countries-fill', type: 'fill', source: 'countries',
+        paint: {
+          'fill-color': [
+            'match', ['get', 'MAPCOLOR9'],
+            1, COUNTRY_COLOR_PALETTE[1], 2, COUNTRY_COLOR_PALETTE[2], 3, COUNTRY_COLOR_PALETTE[3],
+            4, COUNTRY_COLOR_PALETTE[4], 5, COUNTRY_COLOR_PALETTE[5], 6, COUNTRY_COLOR_PALETTE[6],
+            7, COUNTRY_COLOR_PALETTE[7], 8, COUNTRY_COLOR_PALETTE[8], 9, COUNTRY_COLOR_PALETTE[9],
+            '#8a8a8a'
+          ],
+          'fill-opacity': 0.95
+        }
+      },
+      { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#050912', 'line-width': 0.6 } },
+      routeLineLayer()
+    ]
+  };
 }
 
 function buildStreetStyle() {
@@ -29,9 +90,7 @@ function buildStreetStyle() {
     },
     layers: [
       { id: 'osm-layer', type: 'raster', source: 'osm' },
-      { id: 'route-line', type: 'line', source: 'route',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#2f6fed', 'line-width': 4, 'line-opacity': 0.85 } }
+      routeLineLayer()
     ]
   };
 }
@@ -58,58 +117,10 @@ function buildSatelliteStyle() {
     layers: [
       { id: 'esri-imagery-layer', type: 'raster', source: 'esriImagery' },
       { id: 'esri-labels-layer', type: 'raster', source: 'esriLabels' },
-      { id: 'route-line', type: 'line', source: 'route',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#2f6fed', 'line-width': 4, 'line-opacity': 0.85 } }
+      routeLineLayer()
     ]
   };
 }
-
-const map = new maplibregl.Map({
-  container: 'map',
-  style: buildSatelliteStyle(), // satellite is the default view
-  center: [0, 20],
-  zoom: 1.3
-});
-
-map.addControl(new maplibregl.NavigationControl(), 'top-right');
-
-let currentStyleName = 'satellite';
-let lastRouteGeoJSON = null;
-
-// Runs on the initial load AND every time setStyle() swaps the style out —
-// both cases fire 'style.load', so this is the one place that needs to
-// re-apply the globe projection (a runtime map property, not part of the
-// style spec) and restore any in-progress route (which setStyle wipes).
-function onStyleLoad() {
-  map.setProjection({ type: 'globe' });
-  if (lastRouteGeoJSON && map.getSource('route')) {
-    map.getSource('route').setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
-  }
-}
-map.on('style.load', onStyleLoad);
-
-function switchStyle(name) {
-  if (name === currentStyleName) return;
-  currentStyleName = name;
-  map.setStyle(name === 'street' ? buildStreetStyle() : buildSatelliteStyle());
-}
-
-// MapLibre doesn't ship Leaflet's L.control.layers equivalent, so this is a
-// small custom control for the Street/Satellite toggle.
-const styleToggle = document.createElement('div');
-styleToggle.className = 'style-toggle maplibregl-ctrl';
-styleToggle.innerHTML = `
-  <button type="button" data-style="street">Street</button>
-  <button type="button" data-style="satellite" class="active">Satellite</button>
-`;
-document.getElementById('map').appendChild(styleToggle);
-styleToggle.addEventListener('click', (e) => {
-  const name = e.target.dataset.style;
-  if (!name) return;
-  switchStyle(name);
-  styleToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.style === name));
-});
 
 const markers = {};      // deviceId -> maplibregl.Marker
 const listeners = {};    // deviceId -> firebase ref
@@ -118,6 +129,10 @@ const addForm = document.getElementById('addDeviceForm');
 const idInput = document.getElementById('newDeviceId');
 
 let myLocationMarker = null;
+let map = null;
+let currentStyleName = 'world';
+let lastRouteGeoJSON = null;
+let countriesGeoJSON = null;
 
 // Keep in sync with tracker.js — same safe character set for Firebase keys.
 const SAFE_ID_PATTERN = /[^a-zA-Z0-9_-]/g;
@@ -313,15 +328,78 @@ listEl.addEventListener('click', (e) => {
   if (e.target.classList.contains('directions')) showDirectionsTo(id);
 });
 
-// Load previously watched devices on page load
-getSavedDevices().forEach(watchDevice);
+function styleForName(name) {
+  if (name === 'street') return buildStreetStyle();
+  if (name === 'satellite') return buildSatelliteStyle();
+  return buildGlobeStyle(countriesGeoJSON);
+}
 
-// "time ago" text and the stale flag both depend on the clock moving
-// forward, not just on new Firebase writes — refresh periodically so a
-// device that stopped reporting visibly flips to stale without needing a
-// fresh value event.
-setInterval(() => {
-  Object.keys(listeners).forEach(deviceId => {
-    listeners[deviceId].once('value', (snap) => renderDeviceRow(deviceId, snap.val()));
+function switchStyle(name) {
+  if (name === currentStyleName) return;
+  currentStyleName = name;
+  map.setStyle(styleForName(name));
+}
+
+async function init() {
+  try {
+    const res = await fetch(COUNTRIES_URL);
+    countriesGeoJSON = await res.json();
+  } catch (e) {
+    // Falls back to an empty countries layer (just the dark ocean sphere)
+    // if the CDN is unreachable — the globe still renders, just without
+    // the colored country fills, and Street/Satellite are unaffected.
+    countriesGeoJSON = { type: 'FeatureCollection', features: [] };
+  }
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: buildGlobeStyle(countriesGeoJSON), // colorful political globe is the default view
+    center: [0, 20],
+    zoom: 1.3
   });
-}, 15000);
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+  // Runs on the initial load AND every time setStyle() swaps the style out —
+  // both cases fire 'style.load', so this is the one place that needs to
+  // re-apply the globe projection (a runtime map property, not part of the
+  // style spec) and restore any in-progress route (which setStyle wipes).
+  map.on('style.load', () => {
+    map.setProjection({ type: 'globe' });
+    if (lastRouteGeoJSON && map.getSource('route')) {
+      map.getSource('route').setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
+    }
+  });
+
+  // MapLibre doesn't ship Leaflet's L.control.layers equivalent, so this is
+  // a small custom control for switching map styles.
+  const styleToggle = document.createElement('div');
+  styleToggle.className = 'style-toggle maplibregl-ctrl';
+  styleToggle.innerHTML = `
+    <button type="button" data-style="world" class="active">World</button>
+    <button type="button" data-style="street">Street</button>
+    <button type="button" data-style="satellite">Satellite</button>
+  `;
+  document.getElementById('map').appendChild(styleToggle);
+  styleToggle.addEventListener('click', (e) => {
+    const name = e.target.dataset.style;
+    if (!name) return;
+    switchStyle(name);
+    styleToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.style === name));
+  });
+
+  // Load previously watched devices now that the map exists
+  getSavedDevices().forEach(watchDevice);
+
+  // "time ago" text and the stale flag both depend on the clock moving
+  // forward, not just on new Firebase writes — refresh periodically so a
+  // device that stopped reporting visibly flips to stale without needing a
+  // fresh value event.
+  setInterval(() => {
+    Object.keys(listeners).forEach(deviceId => {
+      listeners[deviceId].once('value', (snap) => renderDeviceRow(deviceId, snap.val()));
+    });
+  }, 15000);
+}
+
+init();
