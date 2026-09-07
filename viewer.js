@@ -1,3 +1,5 @@
+import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.7.0/dist/maplibre-gl.mjs';
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
