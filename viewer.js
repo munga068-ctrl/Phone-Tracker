@@ -45,6 +45,11 @@ const COUNTRY_COLOR_PALETTE = {
 function buildGlobeStyle(countriesGeoJSON) {
   return {
     version: 8,
+    // Setting this directly in the style (matching MapLibre's own official
+    // globe examples) is more robust than only calling setProjection() at
+    // runtime — some versions/contexts don't reliably pick up a
+    // runtime-only call.
+    projection: { type: 'globe' },
     sources: {
       ocean: { type: 'geojson', data: oceanFeature() },
       countries: { type: 'geojson', data: countriesGeoJSON || { type: 'FeatureCollection', features: [] } },
@@ -67,13 +72,18 @@ function buildGlobeStyle(countriesGeoJSON) {
       },
       { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#050912', 'line-width': 0.6 } },
       routeLineLayer()
-    ]
+    ],
+    sky: {
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
+    },
+    light: { anchor: 'map', position: [1.5, 90, 80] }
   };
 }
 
 function buildStreetStyle() {
   return {
     version: 8,
+    projection: { type: 'globe' },
     sources: {
       osm: {
         type: 'raster',
@@ -98,6 +108,7 @@ function buildStreetStyle() {
 function buildSatelliteStyle() {
   return {
     version: 8,
+    projection: { type: 'globe' },
     sources: {
       esriImagery: {
         type: 'raster',
