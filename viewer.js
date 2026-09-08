@@ -368,7 +368,15 @@ async function init() {
     container: 'map',
     style: buildGlobeStyle(countriesGeoJSON), // colorful political globe is the default view
     center: [0, 20],
-    zoom: 1.3
+    zoom: 1.3,
+    // MapLibre renders at devicePixelRatio by default for crisp vector
+    // content, but our raster sources (OSM Street, Esri Satellite) have no
+    // @2x/retina variant — at DPR > 1 that just stretches their native
+    // 256px tiles across more physical pixels, blurring everything baked
+    // into them, place-name text included. Forcing 1 keeps raster tiles at
+    // their native sharp resolution; it has no real downside here since the
+    // World style's fills/lines don't rely on crisp hi-DPI vector text.
+    pixelRatio: 1
   });
 
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
