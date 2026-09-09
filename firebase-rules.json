@@ -6,6 +6,15 @@
         ".write": "$deviceId.length >= 6",
         ".validate": "newData.hasChildren(['lat', 'lng', 'accuracy', 'timestamp']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('accuracy').isNumber() && newData.child('timestamp').isNumber()"
       }
+    },
+    "deviceHistory": {
+      "$deviceId": {
+        ".read": "$deviceId.length >= 6",
+        "$slot": {
+          ".write": "$deviceId.length >= 6",
+          ".validate": "newData.hasChildren(['lat', 'lng', 'timestamp']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('timestamp').isNumber()"
+        }
+      }
     }
   }
 }
