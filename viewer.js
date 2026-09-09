@@ -372,6 +372,8 @@ function watchDevice(deviceId) {
       : [];
     deviceHistories[deviceId] = points;
     applyTrailsToMap();
+  }, (err) => {
+    console.error('deviceHistory read failed for', deviceId, ':', err);
   });
 }
 
