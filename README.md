@@ -12,10 +12,12 @@ The Firebase console's default "test mode" makes your **entire** database public
 2. Replace whatever is there with the contents of [`firebase-rules.json`](./firebase-rules.json) in this repo.
 3. Click **Publish**.
 
+⚠️ **If you already set up rules before the recent-path trail feature was added**, you need to re-publish — the rules file now also covers a `deviceHistory` node, and without it, history writes will silently fail with a permission error (the current-location dot will still work fine either way).
+
 What these rules do:
-- Block reading or listing the whole `/devices` node — only a specific, known device ID can be read.
+- Block reading or listing the whole `/devices` or `/deviceHistory` node — only a specific, known device ID can be read.
 - Require any device ID to be at least 6 characters (matches the client-side validation in `tracker.js`).
-- Validate that writes contain the expected shape (`lat`, `lng`, `accuracy`, `timestamp` as numbers) so garbage/malicious writes are rejected.
+- Validate that writes contain the expected shape (`lat`, `lng`, `accuracy`, `timestamp` as numbers for `/devices`; `lat`, `lng`, `timestamp` for `/deviceHistory`) so garbage/malicious writes are rejected.
 
 This does **not** make individual device IDs unguessable by brute force — treat your Device ID like a password. Longer and more random is better than something like `phone1`.
 
@@ -25,10 +27,18 @@ This does **not** make individual device IDs unguessable by brute force — trea
 - **Won't track a phone with the screen off or the tab backgrounded.** Mobile browsers suspend JavaScript almost immediately once a tab isn't visible or the screen locks — there's no web API for reliable background location tracking. `tracker.js` requests a screen Wake Lock to help while the tab is in the foreground, but this is a partial mitigation, not a fix — a lost or stolen phone with its screen off won't be tracked by this tool.
 - **Battery % may not show.** `navigator.getBattery()` is deprecated and unsupported on iOS Safari and most current desktop/mobile browsers; it'll just show nothing for those users.
 
+## Features
+
+- **World / Street / Satellite** map styles, all rendered as an actual rotating 3D globe (drag to spin it).
+- **Recent-path trail** — each watched device draws a faint purple line of its last ~1 hour of movement (a 30-slot ring buffer, so storage never grows unbounded).
+- **Live connection status** — the dot next to "Find My Phone" reflects Firebase's actual realtime connection state, not just whether the page loaded.
+- **Directions** — opens turn-by-turn navigation in Google Maps, and sketches an approximate route on the map itself.
+- **Legend** in the sidebar explaining every marker/line color.
+
 ## Files
 
-- `track.html` / `tracker.js` — run on the phone being tracked. Sanitizes the Device ID, throttles writes to at most once per 8s, sends a heartbeat write every 30s so "last seen" doesn't go stale during a stationary GPS lull, and requests a Wake Lock while active.
-- `index.html` / `viewer.js` — the map/dashboard. Flags a device as stale (⚠️) if it hasn't reported in 5+ minutes.
+- `track.html` / `tracker.js` — run on the phone being tracked. Sanitizes the Device ID, throttles writes to at most once per 8s, sends a heartbeat write every 30s so "last seen" doesn't go stale during a stationary GPS lull, requests a Wake Lock while active, and writes a recent-path history point alongside each location update.
+- `index.html` / `viewer.js` — the map/dashboard. Flags a device as stale (⚠️) if it hasn't reported in 5+ minutes, draws each device's recent path, and shows live Firebase connection status.
 - `firebase-config.js` — your Firebase project config (the API key here is not a secret by itself — Firebase's security model relies on the *rules*, not on hiding this value).
 - `firebase-rules.json` — paste into the Firebase console as described above.
-- `style.css` — shared styling for both pages.
+- `style.css` — shared dark-theme styling for both pages.
