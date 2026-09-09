@@ -74,7 +74,12 @@ async function writeLocation(pos, { force = false } = {}) {
       lat: latitude,
       lng: longitude,
       timestamp: now
-    }).catch(() => { /* best-effort — trail is a nice-to-have, not core function */ });
+    }).catch((historyErr) => {
+      // Visible on purpose (unlike before) — this write failing shouldn't
+      // silently vanish, since the main status line above only reflects the
+      // current-location write, not this one.
+      console.error('deviceHistory write failed:', historyErr);
+    });
 
     const batteryText = battery !== null ? ` · 🔋${battery}%` : '';
     setStatus(`Sharing location — last update ${new Date(now).toLocaleTimeString()} (±${Math.round(accuracy)}m)${batteryText}`);
