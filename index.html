@@ -9,13 +9,27 @@
 </head>
 <body>
   <div class="sidebar">
-    <h1>📱 Find My Phone</h1>
+    <div class="sidebar-header">
+      <h1>📱 Find My Phone</h1>
+      <span id="connectionStatus" class="connection-status" title="Checking connection…">
+        <span class="dot"></span> <span class="label">Connecting…</span>
+      </span>
+    </div>
     <form id="addDeviceForm">
       <input type="text" id="newDeviceId" placeholder="Device ID / PIN" autocomplete="off">
       <button type="submit">Add</button>
     </form>
     <div id="deviceList"></div>
     <p class="hint">To make a phone findable, open <code>track.html</code> on it and start sharing with the same Device ID.</p>
+
+    <div class="legend">
+      <div class="legend-title">Legend</div>
+      <div class="legend-row"><span class="legend-swatch pin"></span> Tracked phone</div>
+      <div class="legend-row"><span class="legend-swatch stale"></span> Not currently sharing</div>
+      <div class="legend-row"><span class="legend-swatch mine"></span> Your location</div>
+      <div class="legend-row"><span class="legend-swatch route"></span> Directions route</div>
+      <div class="legend-row"><span class="legend-swatch trail"></span> Recent path (last hour)</div>
+    </div>
   </div>
   <div id="map"></div>
 
