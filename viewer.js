@@ -3,6 +3,20 @@ import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.7.0/dist/maplibre-g
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+// Firebase's ".info/connected" is a special path the SDK maintains locally —
+// it reflects the actual realtime socket state, not just "did a fetch
+// succeed once", so this genuinely shows whether device updates are live.
+const connectionStatusEl = document.getElementById('connectionStatus');
+db.ref('.info/connected').on('value', (snap) => {
+  const online = snap.val() === true;
+  connectionStatusEl.classList.toggle('online', online);
+  connectionStatusEl.classList.toggle('offline', !online);
+  connectionStatusEl.querySelector('.label').textContent = online ? 'Live' : 'Offline';
+  connectionStatusEl.title = online
+    ? 'Connected to Firebase — device locations update in real time.'
+    : 'Not connected — locations shown may be out of date.';
+});
+
 const COUNTRIES_URL = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_110m_admin_0_countries.geojson';
 
 // ---- Map styles ----
@@ -18,6 +32,21 @@ function routeLineLayer() {
     id: 'route-line', type: 'line', source: 'route',
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': '#2f6fed', 'line-width': 4, 'line-opacity': 0.85 }
+  };
+}
+
+// One shared source holds every watched device's recent-path trail as a
+// separate LineString feature (rather than one source/layer per device) —
+// simpler to keep in sync, and plenty for the handful of phones a personal
+// tracker realistically watches at once.
+function emptyTrailsFeatureCollection() {
+  return { type: 'FeatureCollection', features: [] };
+}
+function trailsLineLayer() {
+  return {
+    id: 'trails-line', type: 'line', source: 'trails',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#a78bfa', 'line-width': 3, 'line-opacity': 0.65, 'line-dasharray': [2, 1.5] }
   };
 }
 
@@ -55,7 +84,8 @@ function buildGlobeStyle(countriesGeoJSON) {
     sources: {
       ocean: { type: 'geojson', data: oceanFeature() },
       countries: { type: 'geojson', data: countriesGeoJSON || { type: 'FeatureCollection', features: [] } },
-      route: { type: 'geojson', data: emptyRouteFeatureCollection() }
+      route: { type: 'geojson', data: emptyRouteFeatureCollection() },
+      trails: { type: 'geojson', data: emptyTrailsFeatureCollection() }
     },
     layers: [
       { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#050912' } },
@@ -73,6 +103,7 @@ function buildGlobeStyle(countriesGeoJSON) {
         }
       },
       { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#050912', 'line-width': 0.6 } },
+      trailsLineLayer(),
       routeLineLayer()
     ],
     sky: {
@@ -98,10 +129,12 @@ function buildStreetStyle() {
         attribution: '&copy; OpenStreetMap contributors',
         maxzoom: 19
       },
-      route: { type: 'geojson', data: emptyRouteFeatureCollection() }
+      route: { type: 'geojson', data: emptyRouteFeatureCollection() },
+      trails: { type: 'geojson', data: emptyTrailsFeatureCollection() }
     },
     layers: [
       { id: 'osm-layer', type: 'raster', source: 'osm' },
+      trailsLineLayer(),
       routeLineLayer()
     ]
   };
@@ -125,18 +158,22 @@ function buildSatelliteStyle() {
         tileSize: 256,
         maxzoom: 19
       },
-      route: { type: 'geojson', data: emptyRouteFeatureCollection() }
+      route: { type: 'geojson', data: emptyRouteFeatureCollection() },
+      trails: { type: 'geojson', data: emptyTrailsFeatureCollection() }
     },
     layers: [
       { id: 'esri-imagery-layer', type: 'raster', source: 'esriImagery' },
       { id: 'esri-labels-layer', type: 'raster', source: 'esriLabels' },
+      trailsLineLayer(),
       routeLineLayer()
     ]
   };
 }
 
 const markers = {};      // deviceId -> maplibregl.Marker
-const listeners = {};    // deviceId -> firebase ref
+const listeners = {};    // deviceId -> firebase ref (current location)
+const historyListeners = {}; // deviceId -> firebase ref (history ring buffer)
+const deviceHistories = {};  // deviceId -> array of {lat, lng, timestamp}, sorted oldest-first
 const listEl = document.getElementById('deviceList');
 const addForm = document.getElementById('addDeviceForm');
 const idInput = document.getElementById('newDeviceId');
@@ -274,6 +311,29 @@ async function showDirectionsTo(deviceId) {
   }, { enableHighAccuracy: true, timeout: 15000 });
 }
 
+function rebuildTrailsGeoJSON() {
+  const features = Object.keys(deviceHistories)
+    .map(deviceId => {
+      const points = deviceHistories[deviceId];
+      if (!points || points.length < 2) return null; // a line needs 2+ points
+      return {
+        type: 'Feature',
+        properties: { deviceId },
+        geometry: {
+          type: 'LineString',
+          coordinates: points.map(p => [p.lng, p.lat])
+        }
+      };
+    })
+    .filter(Boolean);
+  return { type: 'FeatureCollection', features };
+}
+
+function applyTrailsToMap() {
+  const src = map.getSource('trails');
+  if (src) src.setData(rebuildTrailsGeoJSON());
+}
+
 function watchDevice(deviceId) {
   if (listeners[deviceId]) return; // already watching
   renderDeviceRow(deviceId, null);
@@ -300,6 +360,19 @@ function watchDevice(deviceId) {
     if (row) row.innerHTML = `<strong>${deviceId}</strong><br><span class="hint">Read failed: ${err.message}</span>
       <button class="remove" data-id="${deviceId}">✕</button>`;
   });
+
+  // Recent-path trail — a ring buffer of up to 30 points (~1 hour), written
+  // by tracker.js/the app's background task alongside each location update.
+  const historyRef = db.ref('deviceHistory/' + deviceId);
+  historyListeners[deviceId] = historyRef;
+  historyRef.on('value', (snap) => {
+    const data = snap.val();
+    const points = data
+      ? Object.values(data).sort((a, b) => a.timestamp - b.timestamp)
+      : [];
+    deviceHistories[deviceId] = points;
+    applyTrailsToMap();
+  });
 }
 
 function removeDevice(deviceId) {
@@ -307,6 +380,12 @@ function removeDevice(deviceId) {
     listeners[deviceId].off();
     delete listeners[deviceId];
   }
+  if (historyListeners[deviceId]) {
+    historyListeners[deviceId].off();
+    delete historyListeners[deviceId];
+  }
+  delete deviceHistories[deviceId];
+  applyTrailsToMap();
   if (markers[deviceId]) {
     markers[deviceId].remove();
     delete markers[deviceId];
@@ -390,6 +469,7 @@ async function init() {
     if (lastRouteGeoJSON && map.getSource('route')) {
       map.getSource('route').setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
     }
+    applyTrailsToMap();
   });
 
   // MapLibre doesn't ship Leaflet's L.control.layers equivalent, so this is
