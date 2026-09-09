@@ -27,6 +27,13 @@ const MIN_WRITE_INTERVAL_MS = 8000;
 // indoors) or a write gets throttled right as sharing starts.
 const HEARTBEAT_INTERVAL_MS = 30000;
 
+// Location history is stored as a fixed-size ring buffer (slot = time bucket
+// index mod slot count) rather than an open-ended growing list — this keeps
+// storage bounded automatically with no separate pruning logic needed. With
+// a 2-minute bucket and 30 slots, this holds roughly the last hour of path.
+const HISTORY_INTERVAL_MS = 2 * 60 * 1000;
+const HISTORY_SLOTS = 30;
+
 let deviceId = localStorage.getItem('tracker_device_id') || '';
 idEl.value = deviceId;
 
@@ -60,6 +67,15 @@ async function writeLocation(pos, { force = false } = {}) {
       battery: battery, // null if the browser doesn't support the Battery Status API
       timestamp: now
     });
+    // Ring-buffer history write — same slot gets silently overwritten within
+    // its 2-minute window, so this never grows unbounded and needs no pruning.
+    const slot = Math.floor(now / HISTORY_INTERVAL_MS) % HISTORY_SLOTS;
+    db.ref('deviceHistory/' + deviceId + '/' + slot).set({
+      lat: latitude,
+      lng: longitude,
+      timestamp: now
+    }).catch(() => { /* best-effort — trail is a nice-to-have, not core function */ });
+
     const batteryText = battery !== null ? ` · 🔋${battery}%` : '';
     setStatus(`Sharing location — last update ${new Date(now).toLocaleTimeString()} (±${Math.round(accuracy)}m)${batteryText}`);
   } catch (err) {
