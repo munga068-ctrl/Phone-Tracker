@@ -108,9 +108,39 @@ function buildGlobeStyle(countriesGeoJSON) {
     ],
     sky: {
       'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
-    },
-    light: { anchor: 'map', position: [1.5, 90, 80] }
+    }
+    // No static "light" here — updateSunLight() sets a real, live one via
+    // map.setLight() after the style loads, based on the sun's actual
+    // current position, rather than a fixed placeholder angle.
   };
+}
+
+// ---- Real day/night terminator ----
+// Where the sun is directly overhead right now, from standard solar
+// position formulas (accurate to within ~1° — ignores the equation of
+// time, which only shifts things by a few minutes' worth of longitude).
+function getSubsolarPoint(date) {
+  const startOfYear = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const dayOfYear = Math.floor((date.getTime() - startOfYear) / 86400000);
+  const declination = 23.44 * Math.sin((2 * Math.PI / 365) * (dayOfYear - 81));
+
+  const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+  let lon = (12 - utcHours) * 15;
+  lon = ((lon + 180) % 360 + 360) % 360 - 180; // normalize to [-180, 180]
+
+  return { lat: declination, lon };
+}
+
+// Converts the subsolar point into MapLibre's light spherical position —
+// this part is a best-effort mapping (azimuthal clockwise from north, polar
+// from directly overhead at 0° to directly below at 180°) since I can't
+// visually verify the exact orientation convention without live testing.
+function updateSunLight() {
+  if (!map) return;
+  const sub = getSubsolarPoint(new Date());
+  const azimuthal = (sub.lon + 360) % 360;
+  const polar = 90 - sub.lat;
+  map.setLight({ anchor: 'map', color: '#fff6e0', intensity: 0.4, position: [1.5, azimuthal, polar] });
 }
 
 function buildStreetStyle() {
@@ -472,6 +502,7 @@ async function init() {
       map.getSource('route').setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
     }
     applyTrailsToMap();
+    updateSunLight();
   });
 
   // MapLibre doesn't ship Leaflet's L.control.layers equivalent, so this is
@@ -493,6 +524,10 @@ async function init() {
 
   // Load previously watched devices now that the map exists
   getSavedDevices().forEach(watchDevice);
+
+  // Keep the day/night terminator tracking real time rather than freezing
+  // at whatever moment the page happened to load.
+  setInterval(updateSunLight, 10 * 60 * 1000);
 
   // "time ago" text and the stale flag both depend on the clock moving
   // forward, not just on new Firebase writes — refresh periodically so a
