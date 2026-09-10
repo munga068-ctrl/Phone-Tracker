@@ -400,6 +400,7 @@ function watchDevice(deviceId) {
     const points = data
       ? Object.values(data).sort((a, b) => a.timestamp - b.timestamp)
       : [];
+    console.log(`[trail debug] ${deviceId}: ${points.length} history point(s)`, points);
     deviceHistories[deviceId] = points;
     applyTrailsToMap();
   }, (err) => {
