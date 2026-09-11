@@ -138,7 +138,13 @@ function getSubsolarPoint(date) {
 function updateSunLight() {
   if (!map) return;
   const sub = getSubsolarPoint(new Date());
-  const azimuthal = (sub.lon + 360) % 360;
+  // Verified against timeanddate.com's live day/night map: the subsolar
+  // point calculation itself was already correct, but MapLibre's light
+  // "position" represents the direction the light shines FROM as seen by
+  // the lit surface — the opposite sense of "where the sun is" — so the
+  // illuminated hemisphere came out flipped 180° from reality. Adding 180°
+  // here corrects that.
+  const azimuthal = (sub.lon + 180 + 360) % 360;
   const polar = 90 - sub.lat;
   map.setLight({ anchor: 'map', color: '#fff6e0', intensity: 0.4, position: [1.5, azimuthal, polar] });
 }
