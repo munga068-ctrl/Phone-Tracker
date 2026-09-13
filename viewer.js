@@ -65,13 +65,23 @@ function oceanFeature() {
   };
 }
 
-// Natural Earth's MAPCOLOR9 property is pre-computed graph coloring — it
-// guarantees no two neighboring countries ever share the same color, which
-// is exactly what gives a political map that clean, distinct-region look.
-const COUNTRY_COLOR_PALETTE = {
-  1: '#e0575b', 2: '#3fa9f5', 3: '#3ecf8e', 4: '#f5a623', 5: '#a56ce2',
-  6: '#f2d94e', 7: '#4ecdc4', 8: '#ff8fa3', 9: '#7fd1e0'
-};
+// A simple lat/lon grid ("graticule") — meridians every 30° and parallels
+// every 30° (excluding the poles, where lines of longitude converge to a
+// point) — gives the globe that wireframe/radar look.
+function buildGraticuleGeoJSON() {
+  const features = [];
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const coords = [];
+    for (let lat = -80; lat <= 80; lat += 5) coords.push([lon, lat]);
+    features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const coords = [];
+    for (let lon = -180; lon <= 180; lon += 5) coords.push([lon, lat]);
+    features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
+  }
+  return { type: 'FeatureCollection', features };
+}
 
 function buildGlobeStyle(countriesGeoJSON) {
   return {
@@ -83,70 +93,28 @@ function buildGlobeStyle(countriesGeoJSON) {
     projection: { type: 'globe' },
     sources: {
       ocean: { type: 'geojson', data: oceanFeature() },
+      graticule: { type: 'geojson', data: buildGraticuleGeoJSON() },
       countries: { type: 'geojson', data: countriesGeoJSON || { type: 'FeatureCollection', features: [] } },
       route: { type: 'geojson', data: emptyRouteFeatureCollection() },
       trails: { type: 'geojson', data: emptyTrailsFeatureCollection() }
     },
     layers: [
-      { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#050912' } },
-      {
-        id: 'countries-fill', type: 'fill', source: 'countries',
-        paint: {
-          'fill-color': [
-            'match', ['get', 'MAPCOLOR9'],
-            1, COUNTRY_COLOR_PALETTE[1], 2, COUNTRY_COLOR_PALETTE[2], 3, COUNTRY_COLOR_PALETTE[3],
-            4, COUNTRY_COLOR_PALETTE[4], 5, COUNTRY_COLOR_PALETTE[5], 6, COUNTRY_COLOR_PALETTE[6],
-            7, COUNTRY_COLOR_PALETTE[7], 8, COUNTRY_COLOR_PALETTE[8], 9, COUNTRY_COLOR_PALETTE[9],
-            '#8a8a8a'
-          ],
-          'fill-opacity': 0.95
-        }
-      },
-      { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#050912', 'line-width': 0.6 } },
+      { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#010402' } },
+      { id: 'graticule-line', type: 'line', source: 'graticule', paint: { 'line-color': '#0f5c33', 'line-width': 1, 'line-opacity': 0.4 } },
+      { id: 'countries-fill', type: 'fill', source: 'countries', paint: { 'fill-color': '#00160a', 'fill-opacity': 0.6 } },
+      // A wider, blurred line underneath the crisp outline gives a phosphor
+      // "glow" look without needing any image assets.
+      { id: 'countries-glow', type: 'line', source: 'countries', paint: { 'line-color': '#22ff88', 'line-width': 4, 'line-opacity': 0.25, 'line-blur': 3 } },
+      { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#39ff8f', 'line-width': 1, 'line-opacity': 0.95 } },
       trailsLineLayer(),
       routeLineLayer()
     ],
     sky: {
       'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
     }
-    // No static "light" here — updateSunLight() sets a real, live one via
-    // map.setLight() after the style loads, based on the sun's actual
-    // current position, rather than a fixed placeholder angle.
+    // No "light" config — the globe is intentionally flat/unshaded now, no
+    // day/night hemisphere effect.
   };
-}
-
-// ---- Real day/night terminator ----
-// Where the sun is directly overhead right now, from standard solar
-// position formulas (accurate to within ~1° — ignores the equation of
-// time, which only shifts things by a few minutes' worth of longitude).
-function getSubsolarPoint(date) {
-  const startOfYear = Date.UTC(date.getUTCFullYear(), 0, 1);
-  const dayOfYear = Math.floor((date.getTime() - startOfYear) / 86400000);
-  const declination = 23.44 * Math.sin((2 * Math.PI / 365) * (dayOfYear - 81));
-
-  const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
-  let lon = (12 - utcHours) * 15;
-  lon = ((lon + 180) % 360 + 360) % 360 - 180; // normalize to [-180, 180]
-
-  return { lat: declination, lon };
-}
-
-// Converts the subsolar point into MapLibre's light spherical position —
-// this part is a best-effort mapping (azimuthal clockwise from north, polar
-// from directly overhead at 0° to directly below at 180°) since I can't
-// visually verify the exact orientation convention without live testing.
-function updateSunLight() {
-  if (!map) return;
-  const sub = getSubsolarPoint(new Date());
-  // Verified against timeanddate.com's live day/night map: the subsolar
-  // point calculation itself was already correct, but MapLibre's light
-  // "position" represents the direction the light shines FROM as seen by
-  // the lit surface — the opposite sense of "where the sun is" — so the
-  // illuminated hemisphere came out flipped 180° from reality. Adding 180°
-  // here corrects that.
-  const azimuthal = (sub.lon + 180 + 360) % 360;
-  const polar = 90 - sub.lat;
-  map.setLight({ anchor: 'map', color: '#fff6e0', intensity: 0.4, position: [1.5, azimuthal, polar] });
 }
 
 function buildStreetStyle() {
@@ -509,7 +477,6 @@ async function init() {
       map.getSource('route').setData({ type: 'FeatureCollection', features: [lastRouteGeoJSON] });
     }
     applyTrailsToMap();
-    updateSunLight();
   });
 
   // MapLibre doesn't ship Leaflet's L.control.layers equivalent, so this is
@@ -529,12 +496,46 @@ async function init() {
     styleToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.style === name));
   });
 
+  // ---- Auto Rotate ----
+  // Continuously spins the globe via jumpTo() (instantaneous, no queued
+  // animation) called every frame — the standard technique for a smooth,
+  // uninterrupted globe spin. Pauses itself the moment the user manually
+  // drags the map, rather than fighting their input.
+  let autoRotate = false;
+  let rotateAnimFrame = null;
+  const ROTATE_DEG_PER_FRAME = 0.05;
+
+  function rotateStep() {
+    if (!autoRotate) return;
+    const center = map.getCenter();
+    map.jumpTo({ center: [center.lng + ROTATE_DEG_PER_FRAME, center.lat] });
+    rotateAnimFrame = requestAnimationFrame(rotateStep);
+  }
+  function setAutoRotateUI(on) {
+    autoRotateBtn.textContent = `🔄 Auto Rotate: ${on ? 'On' : 'Off'}`;
+    autoRotateBtn.classList.toggle('active', on);
+  }
+  function setAutoRotate(on) {
+    autoRotate = on;
+    setAutoRotateUI(on);
+    if (on) {
+      rotateStep();
+    } else if (rotateAnimFrame) {
+      cancelAnimationFrame(rotateAnimFrame);
+      rotateAnimFrame = null;
+    }
+  }
+
+  const autoRotateToggle = document.createElement('div');
+  autoRotateToggle.className = 'auto-rotate-toggle maplibregl-ctrl';
+  autoRotateToggle.innerHTML = `<button type="button" id="autoRotateBtn">🔄 Auto Rotate: Off</button>`;
+  document.getElementById('map').appendChild(autoRotateToggle);
+  const autoRotateBtn = document.getElementById('autoRotateBtn');
+  autoRotateBtn.addEventListener('click', () => setAutoRotate(!autoRotate));
+  map.on('dragstart', () => { if (autoRotate) setAutoRotate(false); });
+
   // Load previously watched devices now that the map exists
   getSavedDevices().forEach(watchDevice);
-
-  // Keep the day/night terminator tracking real time rather than freezing
-  // at whatever moment the page happened to load.
-  setInterval(updateSunLight, 10 * 60 * 1000);
 
   // "time ago" text and the stale flag both depend on the clock moving
   // forward, not just on new Firebase writes — refresh periodically so a
