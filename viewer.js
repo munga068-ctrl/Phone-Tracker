@@ -101,19 +101,18 @@ function buildGlobeStyle(countriesGeoJSON) {
     layers: [
       { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#010402' } },
       { id: 'graticule-line', type: 'line', source: 'graticule', paint: { 'line-color': '#0f5c33', 'line-width': 1, 'line-opacity': 0.4 } },
-      { id: 'countries-fill', type: 'fill', source: 'countries', paint: { 'fill-color': '#00160a', 'fill-opacity': 0.6 } },
+      { id: 'countries-fill', type: 'fill', source: 'countries', paint: { 'fill-color': '#0c3320', 'fill-opacity': 0.55 } },
       // A wider, blurred line underneath the crisp outline gives a phosphor
       // "glow" look without needing any image assets.
       { id: 'countries-glow', type: 'line', source: 'countries', paint: { 'line-color': '#22ff88', 'line-width': 4, 'line-opacity': 0.25, 'line-blur': 3 } },
       { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#39ff8f', 'line-width': 1, 'line-opacity': 0.95 } },
       trailsLineLayer(),
       routeLineLayer()
-    ],
-    sky: {
-      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
-    }
-    // No "light" config — the globe is intentionally flat/unshaded now, no
-    // day/night hemisphere effect.
+    ]
+    // No "sky"/atmosphere config — it rendered as an unwanted whitish glow
+    // at the globe's edge with no reliable way to recolor it without live
+    // testing, and no "light" config — the globe is intentionally
+    // flat/unshaded, no day/night hemisphere effect.
   };
 }
 
