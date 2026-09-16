@@ -99,8 +99,8 @@ function buildGlobeStyle(countriesGeoJSON) {
       trails: { type: 'geojson', data: emptyTrailsFeatureCollection() }
     },
     layers: [
-      { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#010402' } },
-      { id: 'graticule-line', type: 'line', source: 'graticule', paint: { 'line-color': '#0f5c33', 'line-width': 1, 'line-opacity': 0.4 } },
+      { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#03130a' } },
+      { id: 'graticule-line', type: 'line', source: 'graticule', paint: { 'line-color': '#0f5c33', 'line-width': 1, 'line-opacity': 0.45 } },
       { id: 'countries-fill', type: 'fill', source: 'countries', paint: { 'fill-color': '#0c3320', 'fill-opacity': 0.55 } },
       // A wider, blurred line underneath the crisp outline gives a phosphor
       // "glow" look without needing any image assets.
@@ -108,11 +108,21 @@ function buildGlobeStyle(countriesGeoJSON) {
       { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#39ff8f', 'line-width': 1, 'line-opacity': 0.95 } },
       trailsLineLayer(),
       routeLineLayer()
-    ]
-    // No "sky"/atmosphere config — it rendered as an unwanted whitish glow
-    // at the globe's edge with no reliable way to recolor it without live
-    // testing, and no "light" config — the globe is intentionally
-    // flat/unshaded, no day/night hemisphere effect.
+    ],
+    // Atmosphere is back, but explicitly colored green this time. It read as
+    // a whitish halo before purely because the horizon/fog colors were left
+    // at their defaults — setting them here gives the green rim glow from
+    // the reference instead of removing the effect entirely.
+    sky: {
+      'sky-color': '#03130a',
+      'horizon-color': '#1f9d5c',
+      'fog-color': '#03130a',
+      'horizon-fog-blend': 0.6,
+      'fog-ground-blend': 0.2,
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
+    }
+    // No "light" config — the globe is intentionally flat/unshaded, no
+    // day/night hemisphere effect.
   };
 }
 
