@@ -18,6 +18,7 @@ db.ref('.info/connected').on('value', (snap) => {
 });
 
 const COUNTRIES_URL = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_110m_admin_0_countries.geojson';
+const COASTLINE_URL = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@v5.1.2/geojson/ne_110m_coastline.geojson';
 
 // ---- Map styles ----
 // Each style includes an empty "route" GeoJSON layer up front, because
@@ -95,6 +96,7 @@ function buildGlobeStyle(countriesGeoJSON) {
       ocean: { type: 'geojson', data: oceanFeature() },
       graticule: { type: 'geojson', data: buildGraticuleGeoJSON() },
       countries: { type: 'geojson', data: countriesGeoJSON || { type: 'FeatureCollection', features: [] } },
+      coastline: { type: 'geojson', data: coastlineGeoJSON || { type: 'FeatureCollection', features: [] } },
       route: { type: 'geojson', data: emptyRouteFeatureCollection() },
       trails: { type: 'geojson', data: emptyTrailsFeatureCollection() }
     },
@@ -102,27 +104,21 @@ function buildGlobeStyle(countriesGeoJSON) {
       { id: 'ocean-fill', type: 'fill', source: 'ocean', paint: { 'fill-color': '#03130a' } },
       { id: 'graticule-line', type: 'line', source: 'graticule', paint: { 'line-color': '#0f5c33', 'line-width': 1, 'line-opacity': 0.45 } },
       { id: 'countries-fill', type: 'fill', source: 'countries', paint: { 'fill-color': '#0c3320', 'fill-opacity': 0.55 } },
-      // A wider, blurred line underneath the crisp outline gives a phosphor
-      // "glow" look without needing any image assets.
-      { id: 'countries-glow', type: 'line', source: 'countries', paint: { 'line-color': '#22ff88', 'line-width': 4, 'line-opacity': 0.25, 'line-blur': 3 } },
-      { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#39ff8f', 'line-width': 1, 'line-opacity': 0.95 } },
+      // Country-vs-country borders: deliberately dim, so they read as
+      // secondary detail rather than competing with the coastlines.
+      { id: 'countries-outline', type: 'line', source: 'countries', paint: { 'line-color': '#1c7a4a', 'line-width': 0.8, 'line-opacity': 0.7 } },
+      // Coastlines (continent/island outlines) come from a separate dataset
+      // and are drawn last and brightest — this is what separates "outer"
+      // continent borders from the "inner" country borders above, since the
+      // country polygons alone can't distinguish the two.
+      { id: 'coastline-glow', type: 'line', source: 'coastline', paint: { 'line-color': '#22ff88', 'line-width': 4, 'line-opacity': 0.3, 'line-blur': 3 } },
+      { id: 'coastline-line', type: 'line', source: 'coastline', paint: { 'line-color': '#4dffa0', 'line-width': 1.3, 'line-opacity': 1 } },
       trailsLineLayer(),
       routeLineLayer()
-    ],
-    // Atmosphere is back, but explicitly colored green this time. It read as
-    // a whitish halo before purely because the horizon/fog colors were left
-    // at their defaults — setting them here gives the green rim glow from
-    // the reference instead of removing the effect entirely.
-    sky: {
-      'sky-color': '#03130a',
-      'horizon-color': '#1f9d5c',
-      'fog-color': '#03130a',
-      'horizon-fog-blend': 0.6,
-      'fog-ground-blend': 0.2,
-      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
-    }
-    // No "light" config — the globe is intentionally flat/unshaded, no
-    // day/night hemisphere effect.
+    ]
+    // No "sky"/atmosphere and no "light" config — both produced an unwanted
+    // whitish glow over the globe that couldn't be reliably recolored, and
+    // the globe is meant to be flat/unshaded anyway.
   };
 }
 
@@ -196,6 +192,48 @@ let map = null;
 let currentStyleName = 'world';
 let lastRouteGeoJSON = null;
 let countriesGeoJSON = null;
+let coastlineGeoJSON = null;
+
+// ---- Auto Rotate state ----
+// Spins the globe via jumpTo() (instantaneous, no queued animation) once
+// per frame. Kept at module level rather than inside init() so that any
+// code which moves the camera can stop it first.
+let autoRotate = false;
+let rotateAnimFrame = null;
+let autoRotateBtn = null;
+const ROTATE_DEG_PER_FRAME = 0.05;
+
+function rotateStep() {
+  if (!autoRotate || !map) return;
+  const center = map.getCenter();
+  map.jumpTo({ center: [center.lng + ROTATE_DEG_PER_FRAME, center.lat] });
+  rotateAnimFrame = requestAnimationFrame(rotateStep);
+}
+function setAutoRotate(on) {
+  autoRotate = on;
+  if (autoRotateBtn) {
+    autoRotateBtn.textContent = `🔄 Auto Rotate: ${on ? 'On' : 'Off'}`;
+    autoRotateBtn.classList.toggle('active', on);
+  }
+  if (on) {
+    rotateStep();
+  } else if (rotateAnimFrame) {
+    cancelAnimationFrame(rotateAnimFrame);
+    rotateAnimFrame = null;
+  }
+}
+function stopAutoRotate() {
+  if (autoRotate) setAutoRotate(false);
+}
+
+// Centering helper used whenever we move the camera to a device. Uses
+// jumpTo rather than flyTo because MapLibre logs "Easing around a point is
+// not supported under globe projection" and the animated fly fights the
+// rotate loop — together that made the map look frozen after adding an ID.
+function centerOnLngLat(lngLat, zoom) {
+  stopAutoRotate();
+  map.jumpTo({ center: lngLat, zoom });
+}
 
 // Keep in sync with tracker.js — same safe character set for Firebase keys.
 const SAFE_ID_PATTERN = /[^a-zA-Z0-9_-]/g;
@@ -317,6 +355,7 @@ async function showDirectionsTo(deviceId) {
       coords = [origin, [dest.lng, dest.lat]];
     }
     setRoute(coords);
+    stopAutoRotate();
     map.fitBounds(boundsFromCoords(coords), { padding: 60 });
   }, () => {
     // Geolocation denied/unavailable — the external Maps tab we already
@@ -365,7 +404,7 @@ function watchDevice(deviceId) {
     } else {
       const popup = new maplibregl.Popup().setHTML(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
       markers[deviceId] = new maplibregl.Marker().setLngLat(lngLat).setPopup(popup).addTo(map);
-      map.flyTo({ center: lngLat, zoom: 15 });
+      centerOnLngLat(lngLat, 15);
     }
     markers[deviceId].getPopup().setHTML(`<strong>${deviceId}</strong><br>${timeAgo(data.timestamp)}`);
   }, (err) => {
@@ -429,7 +468,7 @@ listEl.addEventListener('click', (e) => {
   if (!id) return;
   if (e.target.classList.contains('remove')) removeDevice(id);
   if (e.target.classList.contains('locate') && markers[id]) {
-    map.flyTo({ center: markers[id].getLngLat(), zoom: 16 });
+    centerOnLngLat(markers[id].getLngLat(), 16);
     const popup = markers[id].getPopup();
     if (popup && !popup.isOpen()) markers[id].togglePopup();
   }
@@ -449,19 +488,22 @@ function switchStyle(name) {
 }
 
 async function init() {
-  try {
-    const res = await fetch(COUNTRIES_URL);
-    countriesGeoJSON = await res.json();
-  } catch (e) {
-    // Falls back to an empty countries layer (just the dark ocean sphere)
-    // if the CDN is unreachable — the globe still renders, just without
-    // the colored country fills, and Street/Satellite are unaffected.
-    countriesGeoJSON = { type: 'FeatureCollection', features: [] };
-  }
+  // Both fetched in parallel — neither is required for the map to render,
+  // so a failure on either just leaves that layer empty.
+  const [countriesRes, coastlineRes] = await Promise.allSettled([
+    fetch(COUNTRIES_URL).then(r => r.json()),
+    fetch(COASTLINE_URL).then(r => r.json())
+  ]);
+  countriesGeoJSON = countriesRes.status === 'fulfilled'
+    ? countriesRes.value
+    : { type: 'FeatureCollection', features: [] };
+  coastlineGeoJSON = coastlineRes.status === 'fulfilled'
+    ? coastlineRes.value
+    : { type: 'FeatureCollection', features: [] };
 
   map = new maplibregl.Map({
     container: 'map',
-    style: buildGlobeStyle(countriesGeoJSON), // colorful political globe is the default view
+    style: buildGlobeStyle(countriesGeoJSON), // green wireframe globe is the default view
     center: [0, 20],
     zoom: 1.3,
     // MapLibre renders at devicePixelRatio by default for crisp vector
@@ -506,42 +548,22 @@ async function init() {
   });
 
   // ---- Auto Rotate ----
-  // Continuously spins the globe via jumpTo() (instantaneous, no queued
-  // animation) called every frame — the standard technique for a smooth,
-  // uninterrupted globe spin. Pauses itself the moment the user manually
-  // drags the map, rather than fighting their input.
-  let autoRotate = false;
-  let rotateAnimFrame = null;
-  const ROTATE_DEG_PER_FRAME = 0.05;
-
-  function rotateStep() {
-    if (!autoRotate) return;
-    const center = map.getCenter();
-    map.jumpTo({ center: [center.lng + ROTATE_DEG_PER_FRAME, center.lat] });
-    rotateAnimFrame = requestAnimationFrame(rotateStep);
-  }
-  function setAutoRotateUI(on) {
-    autoRotateBtn.textContent = `🔄 Auto Rotate: ${on ? 'On' : 'Off'}`;
-    autoRotateBtn.classList.toggle('active', on);
-  }
-  function setAutoRotate(on) {
-    autoRotate = on;
-    setAutoRotateUI(on);
-    if (on) {
-      rotateStep();
-    } else if (rotateAnimFrame) {
-      cancelAnimationFrame(rotateAnimFrame);
-      rotateAnimFrame = null;
-    }
-  }
+  // State and control functions live at module level (see near the other
+  // map state above) so that centering on a device can stop the spin —
+  // otherwise the rotate loop and the camera move fight each other every
+  // frame, which is what made the map appear to freeze when adding an ID.
+  autoRotateBtn = document.createElement('button');
+  autoRotateBtn.type = 'button';
+  autoRotateBtn.id = 'autoRotateBtn';
+  autoRotateBtn.textContent = '🔄 Auto Rotate: Off';
 
   const autoRotateToggle = document.createElement('div');
   autoRotateToggle.className = 'auto-rotate-toggle maplibregl-ctrl';
-  autoRotateToggle.innerHTML = `<button type="button" id="autoRotateBtn">🔄 Auto Rotate: Off</button>`;
+  autoRotateToggle.appendChild(autoRotateBtn);
   document.getElementById('map').appendChild(autoRotateToggle);
-  const autoRotateBtn = document.getElementById('autoRotateBtn');
+
   autoRotateBtn.addEventListener('click', () => setAutoRotate(!autoRotate));
-  map.on('dragstart', () => { if (autoRotate) setAutoRotate(false); });
+  map.on('dragstart', stopAutoRotate);
 
   // Load previously watched devices now that the map exists
   getSavedDevices().forEach(watchDevice);
